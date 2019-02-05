@@ -10,7 +10,7 @@
 int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, char *request, int port, bool robot = FALSE, INT64 max = 0);
 
 
-long long urlListParse(char * filename);
+long long urlListParse(char * filename, int nThreads);
 
 
 int main(int argc, char **argv)
@@ -19,15 +19,15 @@ int main(int argc, char **argv)
 	{
 		if (argc != 3)
 		{
-			printf("Usage: executable 1 filename\r\nor\r\nexecutable URL\r\nexiting...\r\n");
+			printf("Usage: executable number_of_threads filename\r\nor\r\nexecutable URL\r\nexiting...\r\n");
 			exit(0);
 		}
 		else
 		{
-			if (atoi(argv[1])!=1)
+			if (atoi(argv[1])<1)
 			{
 				printf("Threads: %d\r\n",atoi(argv[1]));
-				printf("Usage: executable 1 filename\r\nor\r\nexecutable URL\r\nexiting...\r\n");
+				printf("Usage: executable number_of_threads filename\r\nor\r\nexecutable URL\r\nexiting...\r\n");
 				exit(0);
 			}
 		}
@@ -35,7 +35,7 @@ int main(int argc, char **argv)
 
 	if (argc == 3)
 	{
-		urlListParse(argv[2]);
+		urlListParse(argv[2],atoi(argv[1]));
 		return 0;
 	}
 
