@@ -6,9 +6,15 @@
 class MySocket{
 private:
 
-	SOCKET sock;
+
 public:
 	char *buf;
+	char *host;
+	char *request;
+	char *method;
+	int port;
+	SOCKET sock;
+	MySocket();
 	MySocket(SOCKET sock);
 	void clearBuf();
 	long long Read(INT64 max = 0);

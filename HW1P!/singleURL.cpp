@@ -5,7 +5,7 @@
  */
 #include "pch.h"
 
-int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, char *request, int port, bool robot =FALSE, INT64 max =0)
+int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool robot =FALSE, INT64 max =0)
 {
 	clock_t start;
 	clock_t end;
@@ -27,7 +27,7 @@ int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, 
 		exit(0);
 	}
 
-	// open a TCP socket
+	// open a TCP socket everytime
 	SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (sock == INVALID_SOCKET)
 	{
@@ -38,7 +38,7 @@ int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, 
 
 	// setup the port # and protocol type
 	server.sin_family = AF_INET;
-	server.sin_port = htons(port);		// host-to-network flips the byte order
+	server.sin_port = htons(mysock.port);		// host-to-network flips the byte order
 
 	if(robot)
 		printf("\tConnecting on robot... ");
@@ -68,7 +68,7 @@ int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, 
 		"Host: %s\r\n"
 		"Connection: close\r\n"
 		"\r\n",
-		method, request, host
+		mysock.method, mysock.request, mysock.host
 	);
 
 	// Send request
@@ -132,7 +132,7 @@ int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, 
 	}
 	printf("status code %d\n", status_code);
 
-	if (strcmp(method,"GET"))
+	if (strcmp(mysock.method,"GET"))
 		return status_code;
 
 	//Page Parsing

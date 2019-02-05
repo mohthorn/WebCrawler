@@ -8,6 +8,14 @@
 
 
 
+MySocket::MySocket()
+{
+	buf = new char[TRUNC];
+	host = new char[MAX_HOST_LEN];
+	request = new char[MAX_REQUEST_LEN];
+	port = 80;
+}
+
 MySocket::MySocket(SOCKET sock)
 {
 	buf = new char[TRUNC]; // start with 8 KB	

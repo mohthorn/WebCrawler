@@ -5,7 +5,7 @@
  */
 #include "pch.h"
 
-int URLRead(char *source, struct sockaddr_in &server, char *method, char *host, char *request, int port, bool robot = FALSE, INT64 max = 0);
+int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool robot = FALSE, INT64 maxRecvSize = 0);
 
 
 class Parameters {
@@ -13,18 +13,82 @@ public:
 	HANDLE	mutex;
 	HANDLE	finished;
 	HANDLE	eventQuit;
+	char* url;
+	unordered_set<DWORD> seenIPs;
+	unordered_set<string> seenHosts;
+
 };
 
 
-UINT crawlingThread(LPVOID pParams)
+UINT crawlingThread(LPVOID pParam)
 {
+	Utilities ut;
+	Parameters *p = ((Parameters*)pParam);
+	printf("URL: %s\n", p->url);
 
+	//source url passed to HTMLparser
+	char *source = new char[strlen(p->url) + 1];
+	memcpy(source, p->url, strlen(p->url) + 1);
+
+	MySocket mysock;
+	//getting host, request and port
+	char * actualRequest = new char[MAX_REQUEST_LEN];
+	mysock.port = ut.request_parse(mysock.host, actualRequest, p->url);
+	if (mysock.port < 0)
+		exit(0);
+	printf("host %s, port %d\n", mysock.host, mysock.port);
+
+	//uniqueness check
+	printf("\tChecking host uniqueness... ");
+	int prevHostSize = p->seenHosts.size();	
+	p->seenHosts.insert(mysock.host);
+	if (p->seenHosts.size() <= prevHostSize)
+	{
+		printf("failed\n");
+		return FAILURECODE;
+	}
+	printf("passed\n");
+
+	//finding dns
+	DWORD IP;
+	struct sockaddr_in server;
+	if ((IP=ut.DNSParse(mysock.host, server)) == INADDR_NONE) //dns error
+	{
+		return FAILURECODE;
+	}
+
+	//IP check
+	printf("\tChecking IP uniqueness... ");
+	int prevIPSize = p->seenIPs.size();
+	p->seenIPs.insert(IP);
+	if (p->seenIPs.size() <= prevIPSize)
+	{
+		printf("failed\n");
+		return FAILURECODE;
+	}
+	printf("passed\n");
+	//uniqueness check finished
+
+	//send robot request and parse it
+	char robots[] = "/robots.txt";
+	char met[] = "HEAD";
+	mysock.method = met;
+	mysock.request = robots;
+	int status_code = URLRead(source, server, mysock, TRUE ,MAX_ROBOT);
+
+	//send page request
+	char methodGet[]= "GET";
+	if (status_code / 100 == 4)
+	{
+		mysock.method = methodGet;
+		mysock.request = actualRequest;
+		URLRead(source, server, mysock, FALSE, MAX_RECV);
+	}
 }
 
 long long urlListParse(char * filename, int nThreads)
 {
-	unordered_set<DWORD> seenIPs;
-	unordered_set<string> seenHosts;
+
 
 	// **************Opening and Reading File from HTMLParser
 	HANDLE hFile = CreateFile(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
@@ -53,7 +117,7 @@ long long urlListParse(char * filename, int nThreads)
 	char *fileBuf = new char[fileSize];
 	// read into the buffer
 	bRet = ReadFile(hFile, fileBuf, fileSize, &bytesRead, NULL);
-	char method[] = "HEAD";
+	
 	// process errors
 	if (bRet == 0 || bytesRead != fileSize)
 	{
