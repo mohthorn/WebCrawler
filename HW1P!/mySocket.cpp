@@ -61,7 +61,7 @@ long long MySocket::Read(INT64 max)
 			int bytes = recv(sock, buf + curPos, allocatedSize - curPos, 0);
 			if (bytes < 0)
 			{
-				printf("failed with %d on recv\n", WSAGetLastError());
+				//printf("failed with %d on recv\n", WSAGetLastError());
 				break;
 			}
 			if (bytes <= 0)
@@ -76,7 +76,7 @@ long long MySocket::Read(INT64 max)
 			curPos += bytes; // adjust where the next recv goes
 			if (max != 0 && curPos > max) //exceeding max
 			{
-				printf("failed with exceeding max\n");
+				//printf("failed with exceeding max\n");
 				break;
 			}
 
@@ -95,12 +95,12 @@ long long MySocket::Read(INT64 max)
 		}
 		else if (ret == 0) //time limit expired
 		{
-			printf("failed with slow download\n");
+			//printf("failed with slow download\n");
 			break;
 		}
 		else //wsa errors
 		{
-			printf("failed with %d on recv\n", WSAGetLastError());
+			//printf("failed with %d on recv\n", WSAGetLastError());
 			break;
 		}
 	}

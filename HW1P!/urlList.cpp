@@ -5,7 +5,13 @@
  */
 #include "pch.h"
 
-int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool robot = FALSE, INT64 maxRecvSize = 0);
+int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &numberOfLinks, INT64 &pageSize, bool robot = FALSE, INT64 maxRecvSize = 0);
+
+
+class StatusCodeStore {
+public:
+	INT64 nxx[7];
+};
 
 
 class Parameters {
@@ -13,83 +19,184 @@ public:
 	HANDLE	mutex;
 	HANDLE	finished;
 	HANDLE	eventQuit;
-	char* url;
+	queue <char*> links;
+	INT64 activeThreads;
+	INT64  extracted;
+	INT64  successDNS;
+	INT64  robotPassed;
+	INT64  crawledURLs;
+	INT64  totalLink;
+	INT64 pageSize;
+	StatusCodeStore scs;
+	CRITICAL_SECTION cs;
+	CRITICAL_SECTION sh;
+	CRITICAL_SECTION sip;
+	//char* url;
 	unordered_set<DWORD> seenIPs;
 	unordered_set<string> seenHosts;
-
+	clock_t start_time;
+	clock_t end_time;
 };
 
+
+UINT stats(LPVOID pParam)
+{
+	Parameters *p = ((Parameters*)pParam);
+	clock_t past_time = p->start_time;
+	int lastPageCount = 0;
+	int lastSize = 0;
+	while (true)
+	{
+		p->end_time = clock();
+		clock_t duration = 1000.0*(p->end_time - p->start_time) / (double)(CLOCKS_PER_SEC);
+
+		if (duration - past_time >= 2000)
+		{
+			printf("[%3d]\t%3d Q %3d E %3d H %3d D %3d I %3d R %3d C %3lld L %d\n", duration / 1000, p->activeThreads, p->links.size(), p->extracted, p->seenHosts.size(), p->successDNS,
+				p->seenIPs.size(), p->robotPassed, p->crawledURLs, p->totalLink);
+
+			double pageSpeed = (p->crawledURLs - lastPageCount) / (double)(duration - past_time)*1000.0;
+			double sizeSpeed = (p->pageSize - lastSize) / (double)(duration - past_time)*1000.0 / 1000000.0;
+			if (pageSpeed < 0)
+				pageSpeed = 0;
+			if (sizeSpeed < 0)
+				sizeSpeed = 0;
+			printf("\t*** crawling %.1lf pps @ %.1lf Mbps\n", pageSpeed, sizeSpeed);
+
+			lastPageCount = p->crawledURLs;
+			lastSize = p->pageSize;
+			past_time = duration;
+		}
+		Sleep(1.5);
+		if (p->activeThreads <= 0)
+			break;
+	}
+	return 0;
+}
 
 UINT crawlingThread(LPVOID pParam)
 {
 	Utilities ut;
 	Parameters *p = ((Parameters*)pParam);
-	printf("URL: %s\n", p->url);
-
-	//source url passed to HTMLparser
-	char *source = new char[strlen(p->url) + 1];
-	memcpy(source, p->url, strlen(p->url) + 1);
-
 	MySocket mysock;
-	//getting host, request and port
-	char * actualRequest = new char[MAX_REQUEST_LEN];
-	mysock.port = ut.request_parse(mysock.host, actualRequest, p->url);
-	if (mysock.port < 0)
-		exit(0);
-	printf("host %s, port %d\n", mysock.host, mysock.port);
+	InterlockedIncrement64(&p->activeThreads);
 
-	//uniqueness check
-	printf("\tChecking host uniqueness... ");
-	int prevHostSize = p->seenHosts.size();	
-	p->seenHosts.insert(mysock.host);
-	if (p->seenHosts.size() <= prevHostSize)
+	while (true)
 	{
-		printf("failed\n");
-		return FAILURECODE;
-	}
-	printf("passed\n");
+		INT64 nLinks = 0;
+		INT64 pageSize = 0;
+		//Pop out a url
+		// Critical Section
+		EnterCriticalSection(&p->cs);
+		if (p->links.size() == 0)
+		{
+			//crawling finished
+			LeaveCriticalSection(&p->cs);
+			break;
+		}
+		char *url = p->links.front();
+		p->links.pop();
 
-	//finding dns
-	DWORD IP;
-	struct sockaddr_in server;
-	if ((IP=ut.DNSParse(mysock.host, server)) == INADDR_NONE) //dns error
-	{
-		return FAILURECODE;
-	}
+		//printf("URL: %s\n", url);
+		LeaveCriticalSection(&p->cs);
+		// End of Critical Section
 
-	//IP check
-	printf("\tChecking IP uniqueness... ");
-	int prevIPSize = p->seenIPs.size();
-	p->seenIPs.insert(IP);
-	if (p->seenIPs.size() <= prevIPSize)
-	{
-		printf("failed\n");
-		return FAILURECODE;
-	}
-	printf("passed\n");
-	//uniqueness check finished
+		//source url used to pass to HTMLparser
+		char *source = new char[strlen(url) + 1];
+		memcpy(source, url, strlen(url) + 1);
+		
+		//getting host, request and port
+		char * actualRequest = new char[MAX_REQUEST_LEN];
+		mysock.port = ut.request_parse(mysock.host, actualRequest, url);
+		if (mysock.port < 0)
+		{
+			InterlockedDecrement64(&p->activeThreads);
+			return FAILURECODE;
+		}
+		//printf("host %s, port %d\n", mysock.host, mysock.port);
 
-	//send robot request and parse it
-	char robots[] = "/robots.txt";
-	char met[] = "HEAD";
-	mysock.method = met;
-	mysock.request = robots;
-	int status_code = URLRead(source, server, mysock, TRUE ,MAX_ROBOT);
+		//Extracted
+		InterlockedIncrement64(&p->extracted);
 
-	//send page request
-	char methodGet[]= "GET";
-	if (status_code / 100 == 4)
-	{
-		mysock.method = methodGet;
-		mysock.request = actualRequest;
-		URLRead(source, server, mysock, FALSE, MAX_RECV);
+		//uniqueness check
+		//Critical Section
+		EnterCriticalSection(&p->sh);
+		//printf("\tChecking host uniqueness... ");
+		int prevHostSize = p->seenHosts.size();
+		p->seenHosts.insert(mysock.host);
+		if (p->seenHosts.size() <= prevHostSize)
+		{
+			//printf("failed\n");
+			LeaveCriticalSection(&p->sh);
+			continue;
+		}
+		//printf("passed\n");
+		LeaveCriticalSection(&p->sh);
+		//End Critical
+
+		//finding dns
+		DWORD IP;
+		struct sockaddr_in server;
+		if ((IP = ut.DNSParse(mysock.host, server)) == INADDR_NONE) //dns error
+		{
+			continue;
+		}
+		//DNS number updatate
+		InterlockedIncrement64(&p->successDNS);
+
+
+		//IP check
+		//Critical Section
+		EnterCriticalSection(&p->sip);
+		//printf("\tChecking IP uniqueness... ");
+		int prevIPSize = p->seenIPs.size();
+		p->seenIPs.insert(IP);
+		if (p->seenIPs.size() <= prevIPSize)
+		{
+			//printf("failed\n");
+			LeaveCriticalSection(&p->sip);
+			continue;
+		}
+		//printf("passed\n");
+		//uniqueness check finished
+		LeaveCriticalSection(&p->sip);
+		//End Critical
+
+		//robot request and response
+		char robots[] = "/robots.txt";
+		char met[] = "HEAD";
+		mysock.method = met;
+		mysock.request = robots;
+		int status_code = URLRead(source, server, mysock, nLinks, pageSize, TRUE, MAX_ROBOT);
+
+		//page request and response
+		char methodGet[] = "GET";
+		if (status_code / 100 == 4)
+		{
+			InterlockedIncrement64(&p->robotPassed);
+			mysock.method = methodGet;
+			mysock.request = actualRequest;
+			int page_status_code = URLRead(source, server, mysock, nLinks, pageSize, FALSE, MAX_RECV);
+			if ((page_status_code / 100) > 0)
+			{
+				InterlockedIncrement64(&p->crawledURLs);
+			}
+			if ((page_status_code / 100) > 1 && (page_status_code / 100) < 6)
+				InterlockedIncrement64(&p->scs.nxx[page_status_code / 100]);
+			else
+				InterlockedIncrement64(&p->scs.nxx[0]);
+			//Parse page
+		}
+		InterlockedAdd64(&p->totalLink, nLinks);
+		InterlockedAdd64(&p->pageSize, pageSize);
 	}
+	InterlockedDecrement64(&p->activeThreads);
+	return 0;
 }
 
 long long urlListParse(char * filename, int nThreads)
 {
-
-
+	
 	// **************Opening and Reading File from HTMLParser
 	HANDLE hFile = CreateFile(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL, NULL);
@@ -137,95 +244,75 @@ long long urlListParse(char * filename, int nThreads)
 		return -1;
 
 	// a pointer list storing starting points of every link
-	char ** links = new char*[TRUNC] ;
-	UINT64 currentMax = TRUNC;
-	UINT64 nLinks = 0;
+	//char ** links = new char*[TRUNC] ;
+	//UINT64 currentMax = TRUNC;
+	//UINT64 nLinks = 0;
 
+
+	Parameters pParam;
+	pParam.activeThreads = 0;
+	pParam.start_time = clock();
+	InitializeCriticalSection(&pParam.cs);
+	InitializeCriticalSection(&pParam.sh);
+	InitializeCriticalSection(&pParam.sip);
 	while ((pEnd = strstr(pStart, "\r\n")) != NULL )
 	{
 		*pEnd = 0;
 
 		if (*pStart != '\r' && * pStart != 0 && *pStart != '\n')
 		{
-			links[nLinks] = pStart;
+			pParam.links.push(pStart);
 			pStart = pEnd + 2;
-			nLinks++;
-			if (currentMax - nLinks < LINKTHRESHOLD)
-			{
-				char **temp = (char**)realloc(links, currentMax * 2); 
-				if (!temp)
-					printf("not enough space\n");
-				currentMax *= 2;
-				//memcpy(temp, buf, allocatedSize);
-				links = temp;
-			}
-		}
-
-		//if (*pStart != '\r' && * pStart != 0 && *pStart != '\n')
-		//{
-		//	printf("URL: %s\n", pStart);
-
-		//	char *source = new char[strlen(pStart) + 1];
-		//	memcpy(source, pStart, strlen(pStart) + 1);
-
-		//	char *host = new char[MAX_HOST_LEN];
-		//	char *request = new char[MAX_REQUEST_LEN];
-		//	int port = 80;
-		//	//getting useful infos
-		//	port = ut.request_parse(host, request, pStart);
-		//	if (port < 0)
-		//		exit(0);
-		//	printf("host %s, port %d\n", host, port);
-
-		//	printf("\tChecking host uniqueness... ");
-		//	int prevHostSize = seenHosts.size();
-		//	
-		//	seenHosts.insert(host);
-
-
-		//	if (seenHosts.size() <= prevHostSize)
-		//	{
-		//		printf("failed\n");
-		//		pStart = pEnd + 2;
-		//		continue;
-		//	}
-		//	printf("passed\n");
-
-		//	DWORD IP;
-		//	struct sockaddr_in server;
-		//	if ((IP=ut.DNSParse(host, server)) == INADDR_NONE) //dns error
-		//	{
-		//		pStart = pEnd + 2;
-		//		continue;
-		//	}
-		//	printf("\tChecking IP uniqueness... ");
-		//	int prevIPSize = seenIPs.size();
-		//	seenIPs.insert(IP);
-		//	if (seenIPs.size() <= prevIPSize)
-		//	{
-		//		printf("failed\n");
-		//		pStart = pEnd + 2;
-		//		continue;
-		//	}
-		//	printf("passed\n");
-
-		//	char robots[] = "/robots.txt";
-		//	int status_code = URLRead(source, server, method, host, robots, port, TRUE ,MAX_ROBOT);
-		//	char methodGet[]= "GET";
-		//	if (status_code / 100 == 4)
-		//	{
-		//		URLRead(source, server, methodGet, host, request, port, FALSE, MAX_RECV);
-		//	}
-		//	pStart = pEnd + 2;
-		//}
-		
+		}	
 	}
 	
-	for (int i = 0; i < nLinks; i++)
-	{
-		printf("%s\n", links[i]);
-	}
+	//while (!pParam.links.empty())
+	//{
+	//	crawlingThread(&pParam);
+	//}
 
-	//printf("%s\r\n", fileBuf);
+	HANDLE *handles = new HANDLE[nThreads];
+
+	HANDLE timer = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)stats, &pParam, 0, NULL);
+
+	for (int i = 0; i < nThreads; i++)
+	{
+		handles[i] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)crawlingThread, &pParam, 0, NULL);
+	}
+	
+	for (int i = 0; i < nThreads; i++)
+	{
+		WaitForSingleObject(handles[i], INFINITE);
+		CloseHandle(handles[i]);
+	}
+	WaitForSingleObject(timer, INFINITE);
+	CloseHandle(timer);
+
+	DeleteCriticalSection(&pParam.cs);
+	DeleteCriticalSection(&pParam.sh);
+	DeleteCriticalSection(&pParam.sip);
+
+	clock_t duration = 1000.0*(pParam.end_time - pParam.start_time) / (double)(CLOCKS_PER_SEC);
+
+	printf("Extracted %d URLs @ %d / s\n"
+		"Looked up %d DNS names @ %d / s\n"
+		"Downloaded %d robots @ %d / s\n"
+		"Crawled %d pages @ %d / s(%.2lf MB)\n"
+		"Parsed %d links @ %d / s\n",
+		pParam.extracted, pParam.extracted * 1000 / duration,
+		pParam.successDNS, pParam.successDNS * 1000 / duration,
+		pParam.robotPassed, pParam.robotPassed * 1000 / duration,
+		pParam.crawledURLs, pParam.crawledURLs * 1000 / duration, pParam.pageSize / 1000000.0,
+		pParam.totalLink, pParam.totalLink * 1000 / duration
+	);
+
+	printf("HTTP codes : 2xx = %d, 3xx = %d, 4xx = %d, 5xx = %d, other = %d",
+		pParam.scs.nxx[2],
+		pParam.scs.nxx[3],
+		pParam.scs.nxx[4],
+		pParam.scs.nxx[5],
+		pParam.crawledURLs - pParam.scs.nxx[2] - pParam.scs.nxx[3] - pParam.scs.nxx[4] - pParam.scs.nxx[5]
+	);
+
 	return 1;
 }

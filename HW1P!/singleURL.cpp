@@ -5,14 +5,14 @@
  */
 #include "pch.h"
 
-int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool robot =FALSE, INT64 max =0)
+int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &numberOfLinks, INT64 &pageSize, bool robot = FALSE, INT64 max = 0)
 {
 	clock_t start;
 	clock_t end;
 	clock_t duration;
 	Utilities ut;
 	//*********************************
-	// Refered from 463 sample
+	// Referred from 463 sample
 	// string pointing to an HTTP server (DNS name or IP)
 
 	//char str [] = "128.194.135.72";
@@ -40,28 +40,28 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool rob
 	server.sin_family = AF_INET;
 	server.sin_port = htons(mysock.port);		// host-to-network flips the byte order
 
-	if(robot)
-		printf("\tConnecting on robot... ");
-	else
-		printf("\t\b\b* Connecting on page... ");
+	//if(robot)
+	//	printf("\tConnecting on robot... ");
+	//else
+	//	printf("\t\b\b* Connecting on page... ");
 	// connect to the server on port 
 	start = clock();
 	if (connect(sock, (struct sockaddr*) &server, sizeof(struct sockaddr_in)) == SOCKET_ERROR)
 	{
-		printf("failed with %d\n", WSAGetLastError());
+		//printf("failed with %d\n", WSAGetLastError());
 		return(0);
 	}
 	end = clock();
 	duration = 1000.0*(end - start) / (double)(CLOCKS_PER_SEC);
-	printf("done in %dms\n", duration);
+	//printf("done in %dms\n", duration);
 	//printf("Successfully connected to %s (%s) on port %d\n", host, inet_ntoa(server.sin_addr), htons(server.sin_port));
 	//****************************************
 
 
-	printf("\tLoading... ");
+	//printf("\tLoading... ");
 	start = clock();
 	// Form request
-	char *sendBuf = new char[10240];
+	char *sendBuf = new char[3096];
 	sprintf(sendBuf,
 		"%s %s HTTP/1.0\r\n"
 		"User-agent: myTAMUcrawler/1.0\r\n"
@@ -75,19 +75,20 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool rob
 
 	if (send(sock, sendBuf, (int)strlen(sendBuf), 0) == SOCKET_ERROR)
 	{
-		printf("Send error: %d\n", WSAGetLastError());
+		//printf("Send error: %d\n", WSAGetLastError());
 		return(0);
 	}
 	//printf("\trequest sent\n");
 
 	//Receive Response
-	MySocket sockRECV(sock);
-	long long ret = sockRECV.Read(max);
+	mysock.sock = sock;
+	long long ret = mysock.Read(max);
+	pageSize = ret;
 	if (ret < 0)
 	{
 		return(0);
 	}
-	char *pos = strstr(sockRECV.buf, "\r\n\r\n");
+	char *pos = strstr(mysock.buf, "\r\n\r\n");
 	if (pos != NULL)
 	{
 		*(pos + 2) = 0;
@@ -96,21 +97,21 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool rob
 
 	end = clock();
 	duration = 1000.0*(end - start) / (double)(CLOCKS_PER_SEC);
-	printf("done in %dms, ", duration);
-	printf("with %d bytes\n", ret);
+	//printf("done in %dms, ", duration);
+	//printf("with %d bytes\n", ret);
 	//printf("Successfully connected to %s (%s) on port %d\n", host, inet_ntoa(server.sin_addr), htons(server.sin_port));
 
 
 	//Get Status Code
-	printf("\tVerifying header... ");
+	//printf("\tVerifying header... ");
 	char * status = NULL;
-	if ((status = strstr(sockRECV.buf, "HTTP/")) != NULL)
+	if ((status = strstr(mysock.buf, "HTTP/")) != NULL)
 	{
 		status = status + 5;
 	}
 	else
 	{
-		printf("failed with non-HTTP header\n");
+		//printf("failed with non-HTTP header\n");
 		return(0);
 	}
 	if ((status = strchr(status, ' ')) != NULL)
@@ -119,7 +120,7 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool rob
 	}
 	else
 	{
-		printf("can't find status code\n");
+		//printf("can't find status code\n");
 		return(0);
 	}
 
@@ -130,7 +131,7 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool rob
 		status_code *= 10;
 		status_code += (*status - '0');
 	}
-	printf("status code %d\n", status_code);
+	//printf("status code %d\n", status_code);
 
 	if (strcmp(mysock.method,"GET"))
 		return status_code;
@@ -138,20 +139,19 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, bool rob
 	//Page Parsing
 	if (status_code / 100 == 2) //status code 2
 	{
-		printf("\t\b\b+ Parsing page...");
+		//printf("\t\b\b+ Parsing page...");
 		start = clock();
 		long long nLinks = ut.link_count(source, pos, ret);
 		end = clock();
 		duration = 1000.0*(end - start) / (double)(CLOCKS_PER_SEC);
-		printf("done in %dms, ", duration);
-		printf("with %lld links\n", nLinks);
+		//printf("done in %dms, ", duration);
+		//printf("with %lld links\n", nLinks);
+		numberOfLinks = nLinks;
 
 	}
 
-
-
 	// close the socket to this server; open again for the next one
-	sockRECV.clearBuf();
+	mysock.clearBuf();
 	closesocket(sock);
 
 	// call cleanup when done with everything and ready to exit program
