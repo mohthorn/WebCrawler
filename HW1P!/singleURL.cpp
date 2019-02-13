@@ -14,8 +14,6 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 	//*********************************
 	// Referred from 463 sample
 	// string pointing to an HTTP server (DNS name or IP)
-
-	//char str [] = "128.194.135.72";
 	
 	WSADATA wsaData;
 
@@ -48,6 +46,7 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 	start = clock();
 	if (connect(sock, (struct sockaddr*) &server, sizeof(struct sockaddr_in)) == SOCKET_ERROR)
 	{
+		//closesocket(sock);
 		//printf("failed with %d\n", WSAGetLastError());
 		return(0);
 	}
@@ -75,17 +74,20 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 
 	if (send(sock, sendBuf, (int)strlen(sendBuf), 0) == SOCKET_ERROR)
 	{
+		//closesocket(sock);
 		//printf("Send error: %d\n", WSAGetLastError());
 		return(0);
 	}
+	delete(sendBuf);
 	//printf("\trequest sent\n");
 
 	//Receive Response
-	mysock.sock = sock;
-	long long ret = mysock.Read(max);
+	//mysock.sock = sock;
+	long long ret = mysock.Read(sock,max);
 	pageSize = ret;
 	if (ret < 0)
 	{
+		closesocket(sock);
 		return(0);
 	}
 	char *pos = strstr(mysock.buf, "\r\n\r\n");
@@ -111,6 +113,7 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 	}
 	else
 	{
+		closesocket(sock);
 		//printf("failed with non-HTTP header\n");
 		return(0);
 	}
@@ -120,6 +123,7 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 	}
 	else
 	{
+		closesocket(sock);
 		//printf("can't find status code\n");
 		return(0);
 	}
@@ -133,8 +137,14 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 	}
 	//printf("status code %d\n", status_code);
 
-	if (strcmp(mysock.method,"GET"))
+	if (strcmp(mysock.method, "GET"))
+	{
+		// no need to parse since it's robot request
+		mysock.clearBuf();
+		closesocket(sock);
+		WSACleanup();
 		return status_code;
+	}
 
 	//Page Parsing
 	if (status_code / 100 == 2) //status code 2
@@ -152,6 +162,7 @@ int URLRead(char *source, struct sockaddr_in &server, MySocket &mysock, INT64 &n
 
 	// close the socket to this server; open again for the next one
 	mysock.clearBuf();
+	//(sock, SD_BOTH);
 	closesocket(sock);
 
 	// call cleanup when done with everything and ready to exit program

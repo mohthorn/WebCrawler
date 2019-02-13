@@ -4,9 +4,6 @@
  * by Chengyi Min
  */
 class MySocket{
-private:
-
-
 public:
 	char *buf;
 	char *host;
@@ -16,9 +13,10 @@ public:
 	char *source;
 	INT64 pageSize;
 	int port;
-	SOCKET sock;
-	MySocket();
-	MySocket(SOCKET sock);
+	//SOCKET sock;
+	//MySocket();
+	//MySocket(SOCKET sock);
+	//~MySocket();
 	void clearBuf();
-	long long Read(INT64 max = 0);
+	long long Read(SOCKET &sock, INT64 max = 0);
 };

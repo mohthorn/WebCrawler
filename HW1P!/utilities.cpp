@@ -20,7 +20,7 @@ long long Utilities::link_count(char* host, char* fileBuf, long long fileSize)
 	// check for errors indicated by negative values
 	if (nLinks < 0)
 		nLinks = 0;
-
+	delete parser;
 	return nLinks;
 }
 
@@ -39,6 +39,8 @@ int Utilities::winsockInitialize()
 	return 1;
 }
 
+
+
 int Utilities::request_parse(char *host, char* request, char* str)
 {
 	//printf("\tParsing URL... ");
@@ -49,7 +51,7 @@ int Utilities::request_parse(char *host, char* request, char* str)
 	char* position;
 	if (strlen(str) > MAX_URL_LEN)
 	{
-		printf("invalid url\n");
+		//printf("invalid url\n");
 		return -1;
 	}
 	if ((position = strstr(str, "://")) != NULL)
@@ -58,14 +60,14 @@ int Utilities::request_parse(char *host, char* request, char* str)
 		strcpy(scheme, str);
 		if (strcmp(scheme, "http"))
 		{
-			printf("failed with invalid scheme\n");
+			//printf("failed with invalid scheme\n");
 			return -1;
 		}
 		str = position + 3;
 	}
 	else
 	{
-		printf("failed with invalid scheme\n");
+		//printf("failed with invalid scheme\n");
 		return -1;
 	}
 	if ((position = strchr(str, '#')) != NULL)
@@ -76,7 +78,7 @@ int Utilities::request_parse(char *host, char* request, char* str)
 	{
 		if (strlen(position) > MAX_REQUEST_LEN)
 		{
-			printf("invalid request\n");
+			//printf("invalid request\n");
 			return -1;
 		}
 		strcpy(query, position);
@@ -90,7 +92,7 @@ int Utilities::request_parse(char *host, char* request, char* str)
 	{
 		if (strlen(position) > MAX_REQUEST_LEN)
 		{
-			printf("invalid request\n");
+			//printf("invalid request\n");
 			return -1;
 		}
 		strcpy(path, position);
@@ -111,25 +113,28 @@ int Utilities::request_parse(char *host, char* request, char* str)
 	}
 	if (port < 1 || port >65535)
 	{
-		printf("failed with invalid port\n");
+		//printf("failed with invalid port\n");
 		port = -1;
 		return port;
 	}
 	if (strlen(str) > MAX_HOST_LEN)
 	{
-		printf("invalid hostname\n");
+		//printf("invalid hostname\n");
 		return -1;
 	}
 	strcpy(host, str);
 
 	if ((strlen(path) + strlen(query)) > MAX_REQUEST_LEN)
 	{
-		printf("invalid request\n");
+		//printf("invalid request\n");
 		return -1;
 	}
 
 	sprintf(request, "%s%s", path, query);
 
+	delete(query);
+	delete(path);
+	delete(scheme);
 	return (int)port;
 }
 

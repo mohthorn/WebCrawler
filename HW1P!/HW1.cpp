@@ -46,6 +46,10 @@ int main(int argc, char **argv)
 	printf("URL: %s\n", argv[1]);
 	char method[] = "GET";
 	MySocket mysock;
+	mysock.buf = new char[TRUNC];
+	mysock.host = new char[MAX_HOST_LEN];
+	mysock.request = new char[MAX_REQUEST_LEN];
+	mysock.port = 80;
 	//source reserved for page parsing
 	char *source = new char[strlen(argv[1]) + 1];
 	memcpy(source, argv[1], strlen(argv[1]) + 1);

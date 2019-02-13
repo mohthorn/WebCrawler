@@ -8,19 +8,29 @@
 
 
 
-MySocket::MySocket()
-{
-	buf = new char[TRUNC];
-	host = new char[MAX_HOST_LEN];
-	request = new char[MAX_REQUEST_LEN];
-	port = 80;
-}
+//MySocket::MySocket()
+//{
+//	buf = new char[TRUNC];
+//	host = new char[MAX_HOST_LEN];
+//	request = new char[MAX_REQUEST_LEN];
+//	port = 80;
+//}
 
-MySocket::MySocket(SOCKET sock)
-{
-	buf = new char[TRUNC]; // start with 8 KB	
-	this->sock = sock;
-}
+//MySocket::MySocket(SOCKET sock)
+//{
+//	buf = new char[TRUNC]; // start with 8 KB	
+//	this->sock = sock;
+//}
+
+//MySocket::~MySocket()
+//{
+//	delete &buf;
+//	delete &host;
+//	delete &request;
+//	//delete &method;
+//	//delete &pageStart;
+//	//delete &source;
+//}
 
 void MySocket::clearBuf()
 {
@@ -28,7 +38,7 @@ void MySocket::clearBuf()
 		delete(buf);
 }
 
-long long MySocket::Read(INT64 max)
+long long MySocket::Read( SOCKET &sock, INT64 max)
 {
 	long long curPos = 0;
 	long long allocatedSize = TRUNC;
@@ -87,8 +97,12 @@ long long MySocket::Read(INT64 max)
 				// into a bigger array
 				char *temp = (char*)realloc(buf, allocatedSize * 2); //changed the allocation increment and THRESHOLD
 				if (!temp)
+				{
 					printf("not enough space\n");
+					return -1;
+				}
 				allocatedSize *= 2;
+				//free(buf);
 				//memcpy(temp, buf, allocatedSize);
 				buf = temp;
 			}
@@ -104,5 +118,6 @@ long long MySocket::Read(INT64 max)
 			break;
 		}
 	}
+	delete(timeout);
 	return -1;
 }
